@@ -11,7 +11,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 interface DashboardProps {
-  file: File;
+  file: File | string; // Support both File object (upload) and string URL (library)
   data: ProcessedData;
   onBack: () => void;
 }
@@ -57,14 +57,43 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
 
   const handleDownloadSource = () => {
     const a = document.createElement('a');
-    a.href = videoUrl;
-    a.download = file.name;
+    a.href = videoSrc;
+    a.download = typeof file === 'string' ? 'video-download.mp4' : file.name;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
+  
+  const videoSrc = typeof file === 'string' ? file : URL.createObjectURL(file);
 
-  // --- AUDIO GENERATION LOGIC (Reusable) ---
+  return (
+    <div className="min-h-screen bg-[#09090b] text-white flex flex-col h-screen overflow-hidden font-sans selection:bg-indigo-500/30">
+      
+      {/* HEADER */}
+      <header className="h-16 border-b border-white/5 bg-[#09090b]/50 backdrop-blur-xl flex items-center justify-between px-6 z-20">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={onBack}
+            className="p-2 -ml-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-3">
+             <div className="w-8 h-8 bg-indigo-500/10 rounded-lg flex items-center justify-center border border-indigo-500/20">
+                <FileVideo className="w-4 h-4 text-indigo-400" />
+             </div>
+             <div>
+                <h1 className="font-bold text-sm text-gray-200 truncate max-w-[200px] md:max-w-md">
+                   {typeof file === 'string' ? 'Online Course Video' : file.name}
+                </h1>
+                <div className="flex items-center gap-2 text-[10px] text-gray-500 font-mono uppercase tracking-wider">
+                   <span>{data.subtitles.length} Subtitles</span>
+                   <span className="w-1 h-1 rounded-full bg-gray-700"></span>
+                   <span>{data.notes.length} Notes</span>
+                </div>
+             </div>
+          </div>
+        </div>
   const generateFullAudioBlob = async (onProgress: (pct: number) => void): Promise<Blob | null> => {
       const audioContext = new AudioContext();
       const subtitles = data.subtitles;
