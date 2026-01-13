@@ -135,7 +135,7 @@ const App: React.FC = () => {
           return;
       }
       
-      // 2. Otherwise try to process (Usually won't work perfectly for online URLs without download)
+      // 2. Otherwise try to process
       const options: ProcessingOptions = {
           generateNotes: true,
           generateFlashcards: true,
