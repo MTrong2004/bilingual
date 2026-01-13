@@ -34,6 +34,7 @@ jobs:
         run: npm run build
         
       - name: Add .nojekyll
+        shell: bash
         run: touch dist/.nojekyll
         
       - name: Upload artifact
