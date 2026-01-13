@@ -29,6 +29,15 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
+  
+  // Safe helper for filename
+  const getFileName = () => {
+      if (typeof file === 'string') return 'Course_Video.mp4';
+      return file.name;
+  };
+  const fileName = getFileName();
+  const fileBaseName = fileName.split('.')[0] || 'video';
+
   const videoUrl = typeof file === 'string' ? file : URL.createObjectURL(file);
 
   // Dubbing & Merge State
@@ -107,7 +116,7 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
           const url = URL.createObjectURL(wavBlob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `${file.name.split('.')[0]}_dubbed_audio.wav`;
+          a.download = `${fileBaseName}_dubbed_audio.wav`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -194,7 +203,7 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
 
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${file.name.split('.')[0]}_bilingual_dubbed.mp4`;
+        a.download = `${fileBaseName}_bilingual_dubbed.mp4`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -239,7 +248,7 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${file.name.split('.')[0]}_${type}.srt`;
+    a.download = `${fileBaseName}_${type}.srt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -247,9 +256,9 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
   };
 
   const generateFFmpegCommand = () => {
-      const videoName = file.name;
-      const audioName = `${file.name.split('.')[0]}_dubbed_audio.wav`;
-      const outputName = `${file.name.split('.')[0]}_final.mp4`;
+      const videoName = fileName;
+      const audioName = `${fileBaseName}_dubbed_audio.wav`;
+      const outputName = `${fileBaseName}_final.mp4`;
       
       return `ffmpeg -i "${videoName}" -i "${audioName}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest "${outputName}"`;
   };
@@ -361,7 +370,7 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-gray-800 leading-tight max-w-md truncate" title={file.name}>{file.name}</h1>
+            <h1 className="text-lg font-bold text-gray-800 leading-tight max-w-md truncate" title={fileName}>{fileName}</h1>
             <p className="text-xs text-gray-500">Bilingual Study Mode (Local TTS)</p>
           </div>
         </div>
