@@ -14,6 +14,7 @@ interface DashboardProps {
   file: File | string; // Support both File object (upload) and string URL (library)
   data: ProcessedData;
   onBack: () => void;
+  title?: string | null;
 }
 
 const parseTime = (timeStr: string): number => {
@@ -23,7 +24,7 @@ const parseTime = (timeStr: string): number => {
     return 0;
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
+const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack, title }) => {
   const videoRef = useRef<VideoPlayerRef>(null);
   const [activeTab, setActiveTab] = useState<'notes' | 'flashcards'>('notes');
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
@@ -32,6 +33,7 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
   
   // Safe helper for filename
   const getFileName = () => {
+      if (title) return title;
       if (typeof file === 'string') return 'Course_Video.mp4';
       return (file as File).name;
   };
@@ -128,6 +130,23 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
           setProgressText('');
           setProgressPercent(0);
       }
+  };
+  
+  // --- EXPORT JSON FOR DEVELOPER ---
+  const handleExportJSON = () => {
+    const jsonString = JSON.stringify(data, null, 2);
+    
+    // Download as file
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${fileBaseName}_data.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    alert(`Đã xuất dữ liệu ra file: ${fileBaseName}_data.json\nBạn có thể gửi file này cho Admin để cập nhật vào khóa học chính thức.`);
   };
 
   // --- FFMPEG VIDEO MERGING LOGIC ---
@@ -544,7 +563,7 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
         </div>
 
         {/* Right Column: Tools */}
-        <div className="lg:col-span-1 h-[600px] lg:h-auto lg:min-h-[calc(100vh-8rem)] sticky top-24">
+        <div className="lg:col-span-1 h-[600px] lg:h-[calc(100vh-8rem)] sticky top-24">
             {activeTab === 'notes' ? (
                 <NotesPanel notes={data.notes} onNoteClick={handleNoteClick} />
             ) : (

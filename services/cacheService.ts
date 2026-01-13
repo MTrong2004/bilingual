@@ -105,3 +105,80 @@ export const getFromCache = async (file: File): Promise<ProcessedData | null> =>
     return null;
   }
 };
+
+// New helper to get list of all cached filenames
+export const getAllCachedFilenames = async (): Promise<string[]> => {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      // We need to iterate all values to get fileNames. 
+      // Ideally we would have an index on fileName, but scanning all is fine for < 100 items
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const results = request.result;
+        // Map to filenames
+        const filenames = results.map(item => item.fileName);
+        resolve(filenames);
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error("Failed to get cached filenames:", err);
+    return [];
+  }
+};
+
+// New helper to get ALL data for export (including Keys)
+export const getAllCacheEntries = async (): Promise<{key: string, value: any}[]> => {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.openCursor();
+      const entries: {key: string, value: any}[] = [];
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+          entries.push({ key: cursor.key as string, value: cursor.value });
+          cursor.continue();
+        } else {
+          resolve(entries);
+        }
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error("Failed to get all cache entries:", err);
+    return [];
+  }
+};
+
+export const importCacheEntries = async (entries: {key: string, value: any}[]): Promise<void> => {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+       const tx = db.transaction(STORE_NAME, 'readwrite');
+       const store = tx.objectStore(STORE_NAME);
+       
+       entries.forEach(entry => {
+           // Ensure we have a valid key and value
+           if (entry.key && entry.value) {
+               store.put(entry.value, entry.key);
+           }
+       });
+       
+       tx.oncomplete = () => resolve();
+       tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+      console.error("Failed to import cache entries:", err);
+      throw err;
+  }
+};

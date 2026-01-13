@@ -1,11 +1,30 @@
-import React, { Suspense } from 'react';
-import { Sparkles, BrainCircuit, FileText, Languages, ArrowRight, Play, Globe } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Sparkles, BrainCircuit, FileText, Languages, ArrowRight, Play, Globe, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { COURSES } from '../data/courseData';
 
 interface LandingPageProps {
   onGetStarted: () => void;
 }
 
+const HERO_IMAGES = [
+  "/thumbnails/hero.png",
+  // Add more images here if needed, e.g. "/thumbnails/hero-2.png"
+];
+
 const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
+  const featuredCourse = COURSES[0]; // Get the first course to display
+  const [currentImageIdx, setCurrentImageIdx] = useState(0);
+
+  const nextImage = (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      setCurrentImageIdx(prev => (prev + 1) % HERO_IMAGES.length);
+  };
+
+  const prevImage = (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      setCurrentImageIdx(prev => (prev - 1 + HERO_IMAGES.length) % HERO_IMAGES.length);
+  };
+
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-white selection:text-black overflow-x-hidden relative">
       
@@ -84,18 +103,95 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                         <p className="text-sm text-gray-500 uppercase tracking-widest mt-1">Generated Notes</p>
                     </div>
                 </div>
-            </div>
 
-            {/* 3D Column - Meteorite Space */}
-            <div className="h-[500px] lg:h-[700px] w-full relative z-10 order-1 lg:order-2 flex items-center justify-center pointer-events-none">
-                <Suspense fallback={<div className="w-full h-full flex items-center justify-center"><div className="w-8 h-8 border-2 border-indigo-500 rounded-full animate-spin"></div></div>}>
-                    <div className="w-full h-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center">
-                        <div className="text-center">
-                            <div className="w-16 h-16 bg-indigo-500 rounded-full mx-auto mb-4 opacity-50"></div>
-                            <p className="text-gray-400">3D Preview</p>
+                {/* Featured Course Widget */}
+                <div 
+                    onClick={onGetStarted}
+                    className="mt-8 group cursor-pointer"
+                >
+                    <p className="text-xs text-indigo-400 font-bold uppercase tracking-wider mb-3">Featured Course</p>
+                    <div className="bg-white/5 border border-white/10 hover:border-indigo-500/50 p-4 rounded-2xl flex items-center gap-5 transition-all hover:bg-white/10 hover:translate-x-2">
+                        <img 
+                            src={featuredCourse.thumbnail} 
+                            alt={featuredCourse.title} 
+                            className="w-24 h-24 rounded-xl object-cover shadow-lg"
+                        />
+                        <div className="flex-1">
+                            <h4 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-300 transition-colors">
+                                {featuredCourse.title}
+                            </h4>
+                            <p className="text-xs text-gray-400 line-clamp-2 mb-2">
+                                {featuredCourse.description}
+                            </p>
+                            <div className="flex items-center gap-2 text-xs font-mono text-green-400">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>{featuredCourse.modules.reduce((acc, m) => acc + m.lessons.length, 0)} Lessons Available</span>
+                            </div>
+                        </div>
+                        <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white transition-all">
+                            <ArrowRight className="w-5 h-5" />
                         </div>
                     </div>
-                </Suspense>
+                </div>
+            </div>
+
+            {/* 3D Column - Hero Image */}
+            <div className="h-[500px] lg:h-[700px] w-full relative z-10 order-1 lg:order-2">
+                <div className="relative w-full h-full rounded-2xl overflow-hidden border border-white/5 bg-white/5 group">
+                    {/* Background Glows */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[100px] -z-10"></div>
+
+                    {/* Main Image - Slideshow */}
+                    <img 
+                        src={HERO_IMAGES[currentImageIdx]} 
+                        onError={(e) => {
+                            e.currentTarget.src = "https://images.unsplash.com/photo-1633511090164-b43840ea1607?q=80&w=1000&auto=format&fit=crop";
+                        }}
+                        alt="Hero Preview" 
+                        className="w-full h-full object-cover object-center transition-transform duration-700 group-hover:scale-105"
+                    />
+
+                    {/* Navigation Arrows (Only show if multiple images) */}
+                    {HERO_IMAGES.length > 1 && (
+                        <>
+                            <button 
+                                onClick={prevImage}
+                                className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/50 backdrop-blur-md rounded-full flex items-center justify-center text-white md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:bg-indigo-500"
+                            >
+                                <ChevronLeft className="w-6 h-6" />
+                            </button>
+                            <button 
+                                onClick={nextImage}
+                                className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-black/50 backdrop-blur-md rounded-full flex items-center justify-center text-white md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:bg-indigo-500"
+                            >
+                                <ChevronRight className="w-6 h-6" />
+                            </button>
+                            
+                            {/* Dots Indicator */}
+                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+                                {HERO_IMAGES.map((_, idx) => (
+                                    <div 
+                                        key={idx}
+                                        className={`w-2 h-2 rounded-full transition-all ${idx === currentImageIdx ? 'bg-white w-6' : 'bg-white/30'}`}
+                                    />
+                                ))}
+                            </div>
+                        </>
+                    )}
+
+                    {/* Floating UI Elements OVER the image */}
+                    <div className="absolute top-8 right-8 bg-black/40 backdrop-blur-xl border border-white/10 p-3 rounded-2xl shadow-xl animate-bounce-slow pointer-events-none">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center">
+                                <Sparkles className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                                <p className="text-xs text-gray-300 font-medium">Daily Streak</p>
+                                <p className="text-lg font-bold text-white">7 Days 🔥</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
       </div>

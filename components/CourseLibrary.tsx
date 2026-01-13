@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Module, Lesson, COURSE_CONTENT } from '../data/courseData';
-import { PlayCircle, Lock, MonitorPlay, ChevronRight, ChevronDown } from 'lucide-react';
+import { PlayCircle, Lock, MonitorPlay, ChevronRight, ChevronDown, CheckCircle2, Sparkles } from 'lucide-react';
 
 interface CourseLibraryProps {
   onSelectLesson: (lesson: Lesson) => void;
@@ -9,9 +9,33 @@ interface CourseLibraryProps {
 
 const CourseLibrary: React.FC<CourseLibraryProps> = ({ onSelectLesson, onBack }) => {
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({ "m1": true });
+  const [cachedFiles, setCachedFiles] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+      // Load cached files to show status
+      const loadCache = async () => {
+          try {
+              const cacheService = await import('../services/cacheService');
+              const files = await cacheService.getAllCachedFilenames();
+              if (files && files.length > 0) {
+                 setCachedFiles(new Set(files));
+              }
+          } catch (e) {
+              console.error("Failed to load cache index", e);
+          }
+      };
+      loadCache();
+  }, []);
 
   const toggleModule = (modId: string) => {
     setExpandedModules(prev => ({ ...prev, [modId]: !prev[modId] }));
+  };
+
+  const isLessonCached = (videoUrl: string) => {
+      try {
+          const filename = decodeURIComponent(videoUrl.split('/').pop() || "");
+          return cachedFiles.has(filename);
+      } catch { return false; }
   };
 
   return (
@@ -44,27 +68,40 @@ const CourseLibrary: React.FC<CourseLibraryProps> = ({ onSelectLesson, onBack })
                         
                         {expandedModules[module.id] && (
                             <div className="border-t border-white/5">
-                                {module.lessons.map((lesson, idx) => (
+                                {module.lessons.map((lesson, idx) => {
+                                    const isCached = isLessonCached(lesson.videoUrl || "");
+                                    
+                                    return (
                                     <div 
                                         key={lesson.id}
                                         onClick={() => onSelectLesson(lesson)}
-                                        className="p-5 flex items-center gap-4 hover:bg-indigo-500/10 cursor-pointer transition-colors group border-b border-white/5 last:border-0"
+                                        className={`p-5 flex items-center gap-4 hover:bg-indigo-500/10 cursor-pointer transition-colors group border-b border-white/5 last:border-0 ${isCached ? 'bg-indigo-900/10' : ''}`}
                                     >
-                                        <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white transition-all text-gray-400 font-bold text-sm">
-                                            {idx + 1}
+                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all font-bold text-sm ${isCached ? 'bg-green-500/20 text-green-400 shadow-[0_0_10px_rgba(74,222,128,0.2)]' : 'bg-white/5 text-gray-400 group-hover:bg-indigo-500 group-hover:text-white'}`}>
+                                            {isCached ? <CheckCircle2 className="w-5 h-5" /> : idx + 1}
                                         </div>
                                         <div className="flex-1">
-                                            <h4 className="font-semibold text-gray-200 group-hover:text-white transition-colors">
-                                                {lesson.title}
-                                            </h4>
+                                            <div className="flex items-center gap-2">
+                                                <h4 className={`font-semibold transition-colors ${isCached ? 'text-indigo-200' : 'text-gray-200 group-hover:text-white'}`}>
+                                                    {lesson.title}
+                                                </h4>
+                                                {isCached && (
+                                                    <span className="text-[10px] font-bold bg-gradient-to-r from-green-900 to-emerald-900 text-green-300 px-2 py-0.5 rounded border border-green-700/50 flex items-center gap-1">
+                                                        <Sparkles className="w-3 h-3" /> AI Ready
+                                                    </span>
+                                                )}
+                                            </div>
                                             <p className="text-xs text-gray-500 mt-1 line-clamp-1">{lesson.description}</p>
                                         </div>
-                                        <div className="flex items-center gap-2 text-xs text-gray-500 font-mono bg-black/20 px-3 py-1 rounded-full">
-                                            <PlayCircle className="w-3 h-3" />
-                                            {lesson.duration}
-                                        </div>
+                                        {lesson.duration && (
+                                            <div className="flex items-center gap-2 text-xs text-gray-500 font-mono bg-black/20 px-3 py-1 rounded-full">
+                                                <PlayCircle className="w-3 h-3" />
+                                                {lesson.duration}
+                                            </div>
+                                        )}
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

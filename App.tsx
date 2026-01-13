@@ -8,15 +8,18 @@ import { saveToCache } from './services/cacheService';
 import { Sparkles } from 'lucide-react';
 
 import CourseLibrary from './components/CourseLibrary';
-import { Lesson } from './data/courseData';
+import MainMenu from './components/MainMenu';
+import { Lesson, Course } from './data/courseData';
 
 const App: React.FC = () => {
-  // New State: Show Landing Page initially
-  const [showLanding, setShowLanding] = useState(true);
-  const [showLibrary, setShowLibrary] = useState(false); // NEW: Library Mode
+  // New State: Show Landing Page initially - Check localStorage
+  const [showLanding, setShowLanding] = useState(() => !localStorage.getItem('started_flow'));
+  const [showLibrary, setShowLibrary] = useState(false); 
+  const [customUploadMode, setCustomUploadMode] = useState(false); // NEW: Explicit mode for file upload tool
 
   const [appState, setAppState] = useState<AppState>(AppState.UPLOAD);
   const [currentFile, setCurrentFile] = useState<File | string | null>(null);
+  const [currentLessonTitle, setCurrentLessonTitle] = useState<string | null>(null);
   const [processedData, setProcessedData] = useState<ProcessedData | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -42,32 +45,63 @@ const App: React.FC = () => {
         }, 800); // Small fake delay for UX smoothness
         return;
     }
+
+    // Create a new controller for this operation
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     
     // Check if it's a URL (Course Mode) - Bypass Upload
     if (typeof file === 'string') {
-        // TODO: In real app, fetch subtitle JSON from URL if available.
-        // For now, we simulate "No subtitles yet" or dummy data for the URL video.
-        // Actually, we can use Gemini to generate subs for the URL if we can fetch it?
-        // No, current logic requires File object for upload.
-        // LIMITATION: URL mode currently supports only playing, OR we need to fetch Blob.
-        
-        // TEMPORARY FIX: If URL, we assume it's just raw playing or we skip AI for now
-        // But the user expects AI features.
-        // Let's create a "Mock" processed data for now so they can at least watch.
-        
-        const mockData: ProcessedData = {
-            subtitles: [],
-            notes: [],
-            flashcards: []
-        };
-        setProcessedData(mockData);
-        setAppState(AppState.DASHBOARD);
-        return;
-    }
+        try {
+            setStatusMessage("Downloading video for AI Analysis...");
+            setProgress(10);
+            
+            // Fetch the file from the URL to allow AI processing
+            const response = await fetch(file, { signal: controller.signal });
+            if (!response.ok) throw new Error(`Failed to fetch video: ${response.statusText}`);
+            
+            const blob = await response.blob();
+            // Extract a clean filename from the URL
+            let fileName = file.split('/').pop() || "video.mp4";
+            try { fileName = decodeURIComponent(fileName); } catch (e) {}
+            
+            // Create a File object from the Blob
+            const downloadedFile = new File([blob], fileName, { type: blob.type || 'video/mp4' });
+            
+            // Update the file variable to point to the real file object
+            file = downloadedFile;
+            
+            setStatusMessage("Checking cache...");
+            // EXTRA CHECK: Check if we have this file in cache already?
+            const service = await import('./services/cacheService') as any;
+            const checkCache = service.checkCache || service.getFromCache;
+            const cachedResult = checkCache ? await checkCache(downloadedFile) : null;
+            
+            if (cachedResult) {
+                console.log("Found cached data for downloaded file!");
+                setStatusMessage("Loading from cache...");
+                setProgress(100);
+                setTimeout(() => {
+                    setProcessedData(cachedResult);
+                    setAppState(AppState.DASHBOARD);
+                }, 500);
+                return;
+            }
 
-    // Create a new controller
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+            setStatusMessage("Video downloaded. Starting AI...");
+            setProgress(20);
+        } catch (err: any) {
+             console.error("Error downloading file:", err);
+             // SHOW ERROR to user instead of silent fail
+             setErrorMsg(`Không thể tải video để dịch: ${err.message}. (Bạn vẫn có thể xem video nhưng không có AI)`);
+             
+             // Fallback to mock data if download fails, so user can at least watch
+             const mockData: ProcessedData = { subtitles: [], notes: [], flashcards: [] };
+             setProcessedData(mockData);
+             setAppState(AppState.DASHBOARD);
+             return;
+        }
+    }
 
     try {
       const data = await processMediaWithGemini(
@@ -112,20 +146,43 @@ const App: React.FC = () => {
   const resetApp = () => {
     setAppState(AppState.UPLOAD);
     setCurrentFile(null);
+    setCurrentLessonTitle(null);
     setProcessedData(null);
     setErrorMsg(null);
     setStatusMessage(null);
     setProgress(0);
+    // Stay in library if we were there, but if we were in custom upload, go back to main menu?
+    // User wants "Main Interface" to be the Course List.
+    // So if we finish processing, we should probably go back to Dashboard or Main Menu.
+    // Ideally, onBack from Dashboard -> Reset -> Main Menu (if not library)
   };
 
   const goHome = () => {
       resetApp();
       setShowLibrary(false);
-      setShowLanding(true);
+      setCustomUploadMode(false);
+      setShowLanding(false); // Go to Main Menu, not Landing Page
   };
+
+  const goLanding = () => {
+      localStorage.removeItem('started_flow');
+      resetApp();
+      setShowLibrary(false);
+      setCustomUploadMode(false);
+      setShowLanding(true);
+  }
   
+  const handleSelectCourse = (course: Course) => {
+      // For now we only have one course structure, so we just toggle library.
+      // In future: setCurrentCourse(course);
+      setShowLibrary(true);
+      setCustomUploadMode(false);
+  };
+
   const handleSelectLesson = (lesson: Lesson) => {
       setShowLibrary(false);
+      setCustomUploadMode(false); // Just in case
+      setCurrentLessonTitle(lesson.title);
 
       // 1. If lesson has pre-calculated data, load immediately
       if (lesson.data) {
@@ -149,8 +206,10 @@ const App: React.FC = () => {
   if (showLanding) {
       return (
         <LandingPage 
-            onGetStarted={() => setShowLanding(false)} 
-            // We can add a "Library" button to LandingPage later
+            onGetStarted={() => {
+                localStorage.setItem('started_flow', 'true');
+                setShowLanding(false);
+            }} 
         />
       );
   }
@@ -160,12 +219,23 @@ const App: React.FC = () => {
       return <CourseLibrary onSelectLesson={handleSelectLesson} onBack={goHome} />;
   }
 
-  // 3. Dashboard View (When file is processed)
-  if (appState === AppState.DASHBOARD && currentFile && processedData) {
-      return <Dashboard file={currentFile} data={processedData} onBack={resetApp} />;
+  // 3. Main Menu (Default when logged in)
+  if (appState === AppState.UPLOAD && !customUploadMode) {
+      return (
+          <MainMenu 
+             onSelectCourse={handleSelectCourse}
+             onOpenUpload={() => setCustomUploadMode(true)}
+             onBack={goLanding}
+          />
+      );
   }
 
-  // 3. Main App View (Upload / Processing / Error)
+  // 4. Dashboard View (When file is processed)
+  if (appState === AppState.DASHBOARD && currentFile && processedData) {
+      return <Dashboard file={currentFile} data={processedData} onBack={resetApp} title={currentLessonTitle} />;
+  }
+
+  // 5. Custom Upload / Processing / Error View
   return (
     <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-white selection:text-black">
         {/* Simple App Header */}
@@ -176,38 +246,47 @@ const App: React.FC = () => {
                  </div>
                  <span className="font-bold text-lg text-white tracking-tight">BilingualFlow</span>
             </div>
-            {appState === AppState.UPLOAD && !showLibrary && (
-                <div className="flex gap-4">
-                    <button onClick={() => setShowLibrary(true)} className="text-sm font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
-                        Course Library
-                    </button>
-                    <button onClick={goHome} className="text-sm font-medium text-gray-400 hover:text-white transition-colors">
-                        Back to Home
-                    </button>
-                </div>
-            )}
+            
+            <button onClick={goHome} className="text-sm font-medium text-gray-400 hover:text-white transition-colors">
+                Back to Dashboard
+            </button>
         </header>
 
-        <main className="container mx-auto px-4 h-screen flex flex-col justify-center items-center relative z-10">
+        <main className="container mx-auto px-4 min-h-screen pt-24 pb-12 flex flex-col justify-center items-center relative z-10">
             
             {/* Ambient Background Glow */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none"></div>
 
             {/* Error Message Display */}
             {appState === AppState.ERROR && (
-                <div className="w-full max-w-xl mb-8 animate-fade-in-up relative z-20">
+                <div className="w-full max-w-2xl mb-8 animate-fade-in-up relative z-20">
                     <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6 text-center shadow-2xl backdrop-blur-md">
                         <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-3 text-red-400">
                             <span className="text-2xl">⚠</span>
                         </div>
-                        <h3 className="text-lg font-bold text-white mb-1">Processing Failed</h3>
-                        <p className="text-red-300 text-sm mb-4">{errorMsg}</p>
-                        <button 
-                            onClick={resetApp} 
-                            className="px-6 py-2 bg-white text-black font-bold rounded-lg hover:bg-gray-200 transition-colors shadow-sm"
-                        >
-                            Try Again
-                        </button>
+                        <h3 className="text-lg font-bold text-white mb-2">Đã xảy ra lỗi xử lý AI</h3>
+                        <p className="text-red-300 text-sm mb-6 max-h-[100px] overflow-auto bg-black/20 p-2 rounded">{errorMsg}</p>
+                        
+                        <div className="flex gap-3 justify-center">
+                            <button 
+                                onClick={resetApp} 
+                                className="px-6 py-2 bg-gray-600/50 text-white font-medium rounded-lg hover:bg-gray-600 transition-colors border border-white/10"
+                            >
+                                Thử lại
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    // Fallback: Watch without AI
+                                    const mockData: ProcessedData = { subtitles: [], notes: [], flashcards: [] };
+                                    setProcessedData(mockData);
+                                    setAppState(AppState.DASHBOARD);
+                                    setErrorMsg(null);
+                                }} 
+                                className="px-6 py-2 bg-white text-black font-bold rounded-lg hover:bg-gray-200 transition-colors shadow-lg shadow-white/5"
+                            >
+                                Vẫn xem Video (Bỏ qua AI)
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
