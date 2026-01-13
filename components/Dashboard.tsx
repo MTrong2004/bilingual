@@ -33,7 +33,7 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
   // Safe helper for filename
   const getFileName = () => {
       if (typeof file === 'string') return 'Course_Video.mp4';
-      return file.name;
+      return (file as File).name;
   };
   const fileName = getFileName();
   const fileBaseName = fileName.split('.')[0] || 'video';
@@ -67,7 +67,7 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
   const handleDownloadSource = () => {
     const a = document.createElement('a');
     a.href = videoUrl;
-    a.download = typeof file === 'string' ? 'video-download.mp4' : file.name;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
