@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import FileUpload from './components/FileUpload';
 import Dashboard from './components/Dashboard';
 import LandingPage from './components/LandingPage';
-import { AppState, ProcessedData, ProcessingOptions } from './types';
+import ProcessingQueue from './components/ProcessingQueue';
+import { AppState, ProcessedData, ProcessingOptions, BackgroundJob } from './types';
 import { processMediaWithGemini } from './services/geminiService';
-import { saveToCache } from './services/cacheService';
+import { saveToCache, getFromCache as checkCache, getFromCacheByFilename } from './services/cacheService';
 import { Sparkles } from 'lucide-react';
 
 import CourseLibrary from './components/CourseLibrary';
@@ -15,132 +16,175 @@ const App: React.FC = () => {
   // New State: Show Landing Page initially - Check localStorage
   const [showLanding, setShowLanding] = useState(() => !localStorage.getItem('started_flow'));
   const [showLibrary, setShowLibrary] = useState(false); 
-  const [customUploadMode, setCustomUploadMode] = useState(false); // NEW: Explicit mode for file upload tool
+  const [customUploadMode, setCustomUploadMode] = useState(false); 
 
   const [appState, setAppState] = useState<AppState>(AppState.UPLOAD);
   const [currentFile, setCurrentFile] = useState<File | string | null>(null);
   const [currentLessonTitle, setCurrentLessonTitle] = useState<string | null>(null);
   const [processedData, setProcessedData] = useState<ProcessedData | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [progress, setProgress] = useState<number>(0);
 
-  // Ref to hold the abort controller
-  const abortControllerRef = useRef<AbortController | null>(null);
+  // Background Jobs
+  const [jobs, setJobs] = useState<BackgroundJob[]>([]);
+  const jobControllers = useRef<Map<string, AbortController>>(new Map());
 
-  const handleStartProcessing = async (file: File | string, options: ProcessingOptions, cachedData?: ProcessedData) => {
-    setCurrentFile(file);
-    setAppState(AppState.PROCESSING);
-    setErrorMsg(null);
-    setStatusMessage("Initializing...");
-    setProgress(5);
+  const cancelJob = (id: string) => {
+      const controller = jobControllers.current.get(id);
+      if (controller) {
+          controller.abort();
+          jobControllers.current.delete(id);
+      }
+      setJobs(prev => prev.filter(j => j.id !== id));
+  };
+  
+  // Update a job in the queue
+  const updateJob = (id: string, updates: Partial<BackgroundJob>) => {
+      setJobs(prev => prev.map(job => job.id === id ? { ...job, ...updates } : job));
+  };
+  
+  // Process Queue Effect
+  useEffect(() => {
+      const processNextJob = async () => {
+          const activeJob = jobs.find(j => j.status === 'processing');
+          if (activeJob) return; // Busy
 
-    // If cached data is provided, skip the API call
-    if (cachedData) {
-        setStatusMessage("Loading from cache...");
-        setProgress(100);
-        setTimeout(() => {
-            setProcessedData(cachedData);
-            setAppState(AppState.DASHBOARD);
-        }, 800); // Small fake delay for UX smoothness
-        return;
-    }
+          const nextJob = jobs.find(j => j.status === 'pending');
+          if (!nextJob) return; // Empty Queue
 
-    // Create a new controller for this operation
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    
-    // Check if it's a URL (Course Mode) - Bypass Upload
-    if (typeof file === 'string') {
-        try {
-            setStatusMessage("Downloading video for AI Analysis...");
-            setProgress(10);
-            
-            // Fetch the file from the URL to allow AI processing
-            const response = await fetch(file, { signal: controller.signal });
-            if (!response.ok) throw new Error(`Failed to fetch video: ${response.statusText}`);
-            
-            const blob = await response.blob();
-            // Extract a clean filename from the URL
-            let fileName = file.split('/').pop() || "video.mp4";
-            try { fileName = decodeURIComponent(fileName); } catch (e) {}
-            
-            // Create a File object from the Blob
-            const downloadedFile = new File([blob], fileName, { type: blob.type || 'video/mp4' });
-            
-            // Update the file variable to point to the real file object
-            file = downloadedFile;
-            
-            setStatusMessage("Checking cache...");
-            // EXTRA CHECK: Check if we have this file in cache already?
-            const service = await import('./services/cacheService') as any;
-            const checkCache = service.checkCache || service.getFromCache;
-            const cachedResult = checkCache ? await checkCache(downloadedFile) : null;
-            
-            if (cachedResult) {
-                console.log("Found cached data for downloaded file!");
-                setStatusMessage("Loading from cache...");
-                setProgress(100);
-                setTimeout(() => {
-                    setProcessedData(cachedResult);
-                    setAppState(AppState.DASHBOARD);
-                }, 500);
-                return;
-            }
-
-            setStatusMessage("Video downloaded. Starting AI...");
-            setProgress(20);
-        } catch (err: any) {
-             console.error("Error downloading file:", err);
-             // SHOW ERROR to user instead of silent fail
-             setErrorMsg(`Không thể tải video để dịch: ${err.message}. (Bạn vẫn có thể xem video nhưng không có AI)`);
-             
-             // Fallback to mock data if download fails, so user can at least watch
-             const mockData: ProcessedData = { subtitles: [], notes: [], flashcards: [] };
-             setProcessedData(mockData);
-             setAppState(AppState.DASHBOARD);
-             return;
-        }
-    }
-
-    try {
-      const data = await processMediaWithGemini(
-        file, 
-        options, 
-        (status, pct) => {
-            setStatusMessage(status);
-            if (pct !== undefined) setProgress(pct);
-        },
-        controller.signal // Pass signal to service
-      );
+          await processJob(nextJob);
+      };
       
-      // Save result to cache for future use
-      await saveToCache(file, data);
+      processNextJob();
+  }, [jobs]); // Re-run when jobs change (e.g. status updates)
 
-      setProgress(100);
-      setProcessedData(data);
-      setAppState(AppState.DASHBOARD);
-    } catch (err: any) {
-      if (err.message === "Processing cancelled by user.") {
-          resetApp();
+  // Warn before unload if processing
+  useEffect(() => {
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+          const isProcessing = jobs.some(j => j.status === 'processing' || j.status === 'pending');
+          if (isProcessing) {
+              e.preventDefault();
+              e.returnValue = "Quá trình dịch đang diễn ra. Nếu tải lại trang, tiến trình sẽ bị hủy!";
+              return e.returnValue;
+          }
+      };
+
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [jobs]);
+
+  const processJob = async (job: BackgroundJob) => {
+      updateJob(job.id, { status: 'processing', progress: 0 });
+      let file = job.file;
+
+      const controller = new AbortController();
+      jobControllers.current.set(job.id, controller);
+      
+      try {
+        // 1. Download if it's URL
+        if (typeof file === 'string') {
+            updateJob(job.id, { progress: 5 });
+            const response = await fetch(file);
+            if (!response.ok) throw new Error("Download failed");
+            const blob = await response.blob();
+            file = new File([blob], job.filename, { type: blob.type });
+            updateJob(job.id, { progress: 20 });
+        }
+        
+        // 1.5 Check Cache (Smart Skip)
+        updateJob(job.id, { progress: 25 });
+        const cachedData = await checkCache(file);
+        if (cachedData) {
+            updateJob(job.id, { status: 'completed', progress: 100, result: cachedData });
+            return;
+        }
+
+        // 2. Process
+        const options: ProcessingOptions = {
+            generateNotes: true,
+            generateFlashcards: true,
+            originalLanguage: 'Auto Detect'
+        };
+
+        const data = await processMediaWithGemini(
+            file,
+            options,
+            (status, pct) => {
+                if (pct) updateJob(job.id, { progress: pct });
+            },
+            controller.signal
+        );
+
+        // 3. Save
+        await saveToCache(file, data);
+        updateJob(job.id, { status: 'completed', progress: 100, result: data });
+
+      } catch (err: any) {
+          if (err.message === "Processing cancelled by user." || err.name === 'AbortError') {
+              console.log("Job cancelled:", job.filename);
+              // Job is likely already removed from queue by cancelJob, but if not:
+              updateJob(job.id, { status: 'error', error: 'Cancelled' });
+              return;
+          }
+          console.error("Job failed", err);
+          updateJob(job.id, { status: 'error', error: err.message });
+      }
+  };
+
+  const addJob = (file: File | string, filename: string) => {
+      // 1. Check if already queued
+      const existing = jobs.find(j => j.filename === filename && j.status !== 'error');
+      if (existing) {
+          if (existing.status === 'completed') {
+              openJobResult(existing);
+          } else {
+              alert("Video này đang được xử lý trong hàng chờ. Vui lòng kiểm tra tiến trình ở góc màn hình.");
+          }
           return;
       }
       
-      console.error(err);
-      setErrorMsg(err.message || "An unexpected error occurred during processing.");
-      setAppState(AppState.ERROR);
-      setProgress(0);
-    } finally {
-        setStatusMessage(null);
-        abortControllerRef.current = null;
-    }
+      // 2. Check cache (Fast check)
+      // Note: Full cache check happens in processJob too, but good to check here if possible
+      // skipped for simplicity, processJob will handle it or user can check visually in library
+      
+      const newJob: BackgroundJob = {
+          id: Date.now().toString(),
+          file,
+          filename,
+          status: 'pending',
+          progress: 0,
+          createdAt: Date.now()
+      };
+      
+      setJobs(prev => [...prev, newJob]);
   };
 
-  const handleCancel = () => {
-      if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-          setStatusMessage("Cancelling...");
+  const openJobResult = (job: BackgroundJob) => {
+      if (!job.result) {
+          console.warn("Job marked completed but has no result data", job);
+          return;
       }
+      setCurrentFile(job.file);
+      setProcessedData(job.result);
+      setCurrentLessonTitle(job.filename);
+      setAppState(AppState.DASHBOARD);
+  };
+
+  const handleStartProcessing = (file: File | string, options: ProcessingOptions, cachedData?: ProcessedData) => {
+      // 0. If cached data provided by FileUpload (Fast Path), skip queue
+      if (cachedData) {
+          setCurrentFile(file);
+          setProcessedData(cachedData);
+          let name = typeof file === 'string' ? file.split('/').pop() || 'video' : file.name;
+          setCurrentLessonTitle(name);
+          setAppState(AppState.DASHBOARD);
+          return;
+      }
+
+      let name = typeof file === 'string' ? file.split('/').pop() || 'video' : file.name;
+      addJob(file, name);
+      // Go to library to see queue
+      setShowLibrary(true);
+      setCustomUploadMode(false);
   };
 
   const resetApp = () => {
@@ -149,8 +193,6 @@ const App: React.FC = () => {
     setCurrentLessonTitle(null);
     setProcessedData(null);
     setErrorMsg(null);
-    setStatusMessage(null);
-    setProgress(0);
     // Stay in library if we were there, but if we were in custom upload, go back to main menu?
     // User wants "Main Interface" to be the Course List.
     // So if we finish processing, we should probably go back to Dashboard or Main Menu.
@@ -179,27 +221,44 @@ const App: React.FC = () => {
       setCustomUploadMode(false);
   };
 
-  const handleSelectLesson = (lesson: Lesson) => {
-      setShowLibrary(false);
-      setCustomUploadMode(false); // Just in case
-      setCurrentLessonTitle(lesson.title);
-
-      // 1. If lesson has pre-calculated data, load immediately
+  const handleSelectLesson = async (lesson: Lesson) => {
+      // 1. If lesson has pre-calculated dummy data, load immediately (Legacy)
       if (lesson.data) {
-          setCurrentFile(lesson.videoUrl || "https://media.w3.org/2010/05/sintel/trailer_hd.mp4");
+          setShowLibrary(false);
+          setCurrentFile(lesson.videoUrl || "");
           setProcessedData(lesson.data);
+          setCurrentLessonTitle(lesson.title);
           setAppState(AppState.DASHBOARD);
           return;
       }
+
+      // 1.5 Check Cache by Filename (Fast Open)
+      try {
+          // We save files using lesson.title in processJob, so check that first
+          let cachedData = await getFromCacheByFilename(lesson.title);
+          
+          // Fallback: Check by URL filename just in case
+          if (!cachedData && lesson.videoUrl) {
+              const urlFilename = decodeURIComponent(lesson.videoUrl.split('/').pop() || "");
+              cachedData = await getFromCacheByFilename(urlFilename);
+          }
+
+          if (cachedData) {
+               console.log("Found cached lesson data!");
+               setShowLibrary(false);
+               setCurrentFile(lesson.videoUrl || "");
+               setProcessedData(cachedData);
+               setCurrentLessonTitle(lesson.title);
+               setAppState(AppState.DASHBOARD);
+               return;
+          }
+      } catch (e) {
+          console.error("Cache check failed", e);
+      }
       
-      // 2. Otherwise try to process
-      const options: ProcessingOptions = {
-          generateNotes: true,
-          generateFlashcards: true,
-          originalLanguage: 'Auto Detect'
-      };
-      
-      handleStartProcessing(lesson.videoUrl || "https://media.w3.org/2010/05/sintel/trailer_hd.mp4", options);
+      // 2. Add to Queue Logic
+      const fileName = lesson.title;
+      addJob(lesson.videoUrl || "", fileName);
   };
 
   // 1. Landing Page View
@@ -214,25 +273,48 @@ const App: React.FC = () => {
       );
   }
   
+  // Global Queue Widget
+  const QueueWidget = () => (
+      <ProcessingQueue 
+        jobs={jobs} 
+        onOpenJob={openJobResult}
+        onCancelJob={cancelJob}
+        onClearCompleted={() => setJobs(prev => prev.filter(j => j.status !== 'completed'))} 
+      />
+  );
+  
   // 2. Library View
   if (showLibrary) {
-      return <CourseLibrary onSelectLesson={handleSelectLesson} onBack={goHome} />;
+      return (
+        <>
+            <CourseLibrary onSelectLesson={handleSelectLesson} onBack={goHome} />
+            <QueueWidget />
+        </>
+      );
   }
 
   // 3. Main Menu (Default when logged in)
   if (appState === AppState.UPLOAD && !customUploadMode) {
       return (
-          <MainMenu 
-             onSelectCourse={handleSelectCourse}
-             onOpenUpload={() => setCustomUploadMode(true)}
-             onBack={goLanding}
-          />
+          <>
+            <MainMenu 
+                onSelectCourse={handleSelectCourse}
+                onOpenUpload={() => setCustomUploadMode(true)}
+                onBack={goLanding}
+            />
+            <QueueWidget />
+          </>
       );
   }
 
   // 4. Dashboard View (When file is processed)
   if (appState === AppState.DASHBOARD && currentFile && processedData) {
-      return <Dashboard file={currentFile} data={processedData} onBack={resetApp} title={currentLessonTitle} />;
+      return (
+        <>
+            <Dashboard file={currentFile} data={processedData} onBack={resetApp} title={currentLessonTitle} />
+            <QueueWidget />
+        </>
+      );
   }
 
   // 5. Custom Upload / Processing / Error View
@@ -293,11 +375,8 @@ const App: React.FC = () => {
             
             <div className="relative z-20 w-full">
                 <FileUpload 
-                onStart={handleStartProcessing} 
-                onCancel={handleCancel}
-                isLoading={appState === AppState.PROCESSING}
-                statusMessage={statusMessage}
-                progress={progress}
+                    onStart={handleStartProcessing} 
+                    isLoading={false}
                 />
             </div>
         </main>

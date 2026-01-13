@@ -38,4 +38,15 @@ export interface ProcessingOptions {
   originalLanguage: string;
 }
 
+export interface BackgroundJob {
+  id: string;
+  file: File | string; // File object or URL
+  filename: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  progress: number;
+  error?: string;
+  result?: ProcessedData;
+  createdAt: number;
+}
+
 export type StatusUpdateCallback = (status: string, progress?: number) => void;

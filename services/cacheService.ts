@@ -132,6 +132,34 @@ export const getAllCachedFilenames = async (): Promise<string[]> => {
   }
 };
 
+export const getFromCacheByFilename = async (filename: string): Promise<ProcessedData | null> => {
+    try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.openCursor();
+
+            request.onsuccess = (event) => {
+                const cursor = (event.target as IDBRequest).result;
+                if (cursor) {
+                    if (cursor.value.fileName === filename) {
+                        resolve(cursor.value.data as ProcessedData);
+                        return;
+                    }
+                    cursor.continue();
+                } else {
+                    resolve(null);
+                }
+            };
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.error("Error searching cache by filename:", err);
+        return null;
+    }
+};
+
 // New helper to get ALL data for export (including Keys)
 export const getAllCacheEntries = async (): Promise<{key: string, value: any}[]> => {
   try {
