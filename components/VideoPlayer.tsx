@@ -416,6 +416,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
       <video
         ref={videoRef}
         src={src}
+        crossOrigin="anonymous" 
         className={`w-full ${isFullscreen ? 'h-screen object-contain' : 'aspect-video'}`}
         onClick={togglePlay}
         onTimeUpdate={handleTimeUpdate}
