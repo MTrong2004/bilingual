@@ -49,20 +49,20 @@ const NotesPanel: React.FC<NotesPanelProps> = ({ notes, onNoteClick }) => {
       <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
         <h3 className="font-bold text-gray-800 flex items-center gap-2">
           <FileText className="w-5 h-5 text-indigo-600" />
-          Timestamp Notes
+          Ghi chú & Tóm tắt
         </h3>
         <button 
           onClick={exportNotes}
           className="text-sm px-3 py-1.5 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
         >
-          Export Doc
+          Xuất file Doc
         </button>
       </div>
       
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
         {notes.length === 0 ? (
           <div className="text-center text-gray-400 py-10">
-            No notes generated. Try checking "Smart Notes" next time.
+            Chưa có ghi chú nào. Hãy thử tích vào "Smart Notes" khi bắt đầu.
           </div>
         ) : (
           notes.map((note, idx) => (

@@ -3,7 +3,7 @@ import { ProcessedData } from "../types";
 const DB_NAME = 'BilingualFlowDB';
 const STORE_NAME = 'translations';
 const DB_VERSION = 1;
-const CACHE_PREFIX = "v2_"; 
+const CACHE_PREFIX = "v3_VN_NOTES_"; 
 
 // --- IndexedDB Helper Functions ---
 

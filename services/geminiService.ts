@@ -8,7 +8,9 @@ export const getApiKey = (): string | null => {
   if (localKey && localKey.trim().length > 0) return localKey;
 
   // 2. Check Environment Variable (Dev provided key)
+  // Support both REACT_APP_, VITE_ or plain syntax depending on build tool
   if (process.env.API_KEY && process.env.API_KEY.length > 0) return process.env.API_KEY;
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 0) return process.env.GEMINI_API_KEY;
 
   return null;
 };
@@ -268,6 +270,20 @@ export const processMediaWithGemini = async (
     // STEP 2: GENERATE CONTENT
     if (onStatusUpdate) onStatusUpdate("AI is analyzing FULL content (Deep Processing)...", 80);
 
+    // Simulate progress while waiting for AI (from 80% to 98% over 30 seconds)
+    let progressTimer: NodeJS.Timeout | null = null;
+    if (onStatusUpdate) {
+        let currentFakeProgress = 80;
+        progressTimer = setInterval(() => {
+            currentFakeProgress += 1;
+            if (currentFakeProgress > 98) {
+                 if (progressTimer) clearInterval(progressTimer);
+            } else {
+                 onStatusUpdate("AI is generating content...", currentFakeProgress);
+            }
+        }, 2000); 
+    }
+
     // COMPRESSED SCHEMA: Use short keys (s, e, en, vi) to save tokens for long videos
     const compressedSchema: Schema = {
       type: Type.OBJECT,
@@ -338,65 +354,75 @@ export const processMediaWithGemini = async (
         - vi: Vietnamese translation (Accurate & Natural)
       
       - 'nts': Study Notes (${options.generateNotes ? "Required, approx 1 note every 2-3 mins" : "Return empty array"}).
+        - ts: Timestamp
+        - ti: Title (MUST BE IN VIETNAMESE)
+        - co: Content details (MUST BE IN VIETNAMESE)
         - Key concepts and summary of sections.
 
       - 'cards': Flashcards (${options.generateFlashcards ? "Required, max 10 key terms" : "Return empty array"}).
         - Important vocabulary found in the video.
     `;
 
-    const generatePromise = ai.models.generateContent({
-      model: "gemini-3-flash-preview", 
-      contents: { parts: [mediaPart, { text: promptText }] },
-      config: { 
-          responseMimeType: "application/json", 
-          responseSchema: compressedSchema,
-      }
-    });
-    
-    // Cast to GenerateContentResponse or any to fix access errors
-    const response = await runWithCancellation(generatePromise, signal) as GenerateContentResponse;
+    try {
+        const generatePromise = ai.models.generateContent({
+          model: "gemini-flash-latest", 
+          contents: { parts: [mediaPart, { text: promptText }] },
+          config: { 
+              responseMimeType: "application/json", 
+              responseSchema: compressedSchema,
+          }
+        });
+        
+        // Cast to GenerateContentResponse or any to fix access errors
+        const response = await runWithCancellation(generatePromise, signal) as GenerateContentResponse;
+        
+        if (progressTimer) clearInterval(progressTimer); // Stop fake progress
 
-    if (!response.text) throw new Error("No response from AI");
+        if (!response.text) throw new Error("No response from AI");
+        
+        // Auto-repair JSON if truncated
+        let jsonText = response.text.trim();
+        if (!jsonText.endsWith('}')) {
+           // Attempt to find the last valid object in the array structure and close it
+           const lastValidSubs = jsonText.lastIndexOf(']}');
+           if (lastValidSubs !== -1) {
+               jsonText = jsonText.substring(0, lastValidSubs + 2) + ',"nts":[],"cards":[]}'; 
+               console.warn("JSON was truncated. Auto-repaired by closing subtitles and skipping extras.");
+           } else {
+               // Basic closure attempt
+               jsonText += ']}';
+           }
+        }
     
-    // Auto-repair JSON if truncated
-    let jsonText = response.text.trim();
-    if (!jsonText.endsWith('}')) {
-       // Attempt to find the last valid object in the array structure and close it
-       const lastValidSubs = jsonText.lastIndexOf(']}');
-       if (lastValidSubs !== -1) {
-           jsonText = jsonText.substring(0, lastValidSubs + 2) + ',"nts":[],"cards":[]}'; 
-           console.warn("JSON was truncated. Auto-repaired by closing subtitles and skipping extras.");
-       } else {
-           // Basic closure attempt
-           jsonText += ']}';
-       }
+        // Parse compressed JSON and map back to full interface
+        const rawData = JSON.parse(jsonText);
+        
+        const processedData: ProcessedData = {
+            subtitles: (rawData.subs || []).map((s: any) => ({
+                id: s.i,
+                startTime: s.s,
+                endTime: s.e,
+                textOriginal: s.en,
+                textVietnamese: s.vi
+            })),
+            notes: (rawData.nts || []).map((n: any) => ({
+                timestamp: n.ts,
+                title: n.ti,
+                content: n.co
+            })),
+            flashcards: (rawData.cards || []).map((c: any) => ({
+                id: c.id || Math.random().toString(),
+                term: c.t,
+                definition: c.d,
+                context: c.c
+            }))
+        };
+    
+        return processedData;
+    } catch (e) {
+        if (progressTimer) clearInterval(progressTimer);
+        throw e;
     }
-
-    // Parse compressed JSON and map back to full interface
-    const rawData = JSON.parse(jsonText);
-    
-    const processedData: ProcessedData = {
-        subtitles: (rawData.subs || []).map((s: any) => ({
-            id: s.i,
-            startTime: s.s,
-            endTime: s.e,
-            textOriginal: s.en,
-            textVietnamese: s.vi
-        })),
-        notes: (rawData.nts || []).map((n: any) => ({
-            timestamp: n.ts,
-            title: n.ti,
-            content: n.co
-        })),
-        flashcards: (rawData.cards || []).map((c: any) => ({
-            id: c.id || Math.random().toString(),
-            term: c.t,
-            definition: c.d,
-            context: c.c
-        }))
-    };
-
-    return processedData;
 
   } catch (error: any) {
     if (error.message === "Processing cancelled by user.") throw error;
@@ -407,6 +433,7 @@ export const processMediaWithGemini = async (
     if (msg.includes('503')) throw new Error("Server overloaded. Try again shortly.");
     if (msg.includes('SAFETY')) throw new Error("Content blocked by safety filters.");
     if (msg.includes('400') && msg.includes('context')) throw new Error("File too long (Context Exceeded).");
+    if (msg.includes('expired')) throw new Error("Your API Key has expired. Please update it in the settings.");
     if (msg.includes('403') || msg.includes('API Key')) throw new Error("Invalid API Key. Please check your settings.");
     
     throw error;

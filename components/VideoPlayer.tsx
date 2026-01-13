@@ -14,7 +14,9 @@ import {
   Headphones, 
   Check,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Languages,
+  Type
 } from 'lucide-react';
 
 interface VideoPlayerProps {
@@ -61,7 +63,8 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const onlineAudioRef = useRef<HTMLAudioElement | null>(null);
-  const audioCache = useRef<Map<string, AudioBuffer>>(new Map());
+  // Cache for TTS Blobs: Key = "${lang}:${text}" -> Value = BlobURL
+  const ttsCache = useRef<Map<string, string>>(new Map());
 
   // Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -73,10 +76,11 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
   const [showControls, setShowControls] = useState(true);
 
   // Settings & Dubbing State
-  const [voiceMode, setVoiceMode] = useState<'PIPER' | 'FREE_HQ' | 'GEMINI'>('PIPER');
-  const [selectedGeminiVoice, setSelectedGeminiVoice] = useState<string>('Kore');
+  // Removed voiceMode state as requested - unifying into single smart engine
+  const [subLanguageMode, setSubLanguageMode] = useState<'BOTH' | 'VI' | 'EN'>('BOTH');
+  const [subFontSize, setSubFontSize] = useState<'SMALL' | 'MEDIUM' | 'LARGE'>('MEDIUM');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsMenu, setSettingsMenu] = useState<'MAIN' | 'VOICE_MODE' | 'VOICE_SELECT'>('MAIN');
+  const [settingsMenu, setSettingsMenu] = useState<'MAIN' | 'SUB_LANG' | 'SUB_SIZE'>('MAIN');
 
   const [currentSub, setCurrentSub] = useState<Subtitle | null>(null);
   const [showSubs, setShowSubs] = useState(true);
@@ -106,26 +110,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
   }, []);
 
   // Pre-load all TTS audio for subtitles when component mounts (Gemini)
-  useEffect(() => {
-    if (voiceMode === 'GEMINI' && subtitles.length > 0) {
-      const preloadAudio = async () => {
-        for (const sub of subtitles) {
-          const cacheKey = `${sub.textVietnamese}-${selectedGeminiVoice}`;
-          if (!audioCache.current.has(cacheKey)) {
-            try {
-              if (audioContextRef.current) {
-                const buffer = await getTTSAudio(sub.textVietnamese, selectedGeminiVoice, audioContextRef.current);
-                audioCache.current.set(cacheKey, buffer);
-              }
-            } catch (e) {
-              console.warn('Preload audio failed for:', sub.textVietnamese);
-            }
-          }
-        }
-      };
-      preloadAudio();
-    }
-  }, [voiceMode, subtitles, selectedGeminiVoice]);
+  // Removed Gemini Preload as we are simplifying to single voice engine
 
   // --- AUDIO LOGIC ---
   const setDucking = (active: boolean) => {
@@ -141,117 +126,62 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
     setDucking(false);
   };
 
-  const playGeminiAudio = async (text: string, onEnd: () => void) => {
-      if (!audioContextRef.current || !gainNodeRef.current) return;
-      const cacheKey = `${text}-${selectedGeminiVoice}`;
+  const getCacheKey = (text: string, lang: string) => `${lang}:${text}`;
+
+  const prefetchAudio = async (text: string, lang: string) => {
+      const key = getCacheKey(text, lang);
+      if (ttsCache.current.has(key)) return;
+
       try {
-        let buffer: AudioBuffer;
-        if (audioCache.current.has(cacheKey)) {
-            buffer = audioCache.current.get(cacheKey)!;
-        } else {
-            setLoadingAudio(true);
-            buffer = await getTTSAudio(text, selectedGeminiVoice, audioContextRef.current);
-            audioCache.current.set(cacheKey, buffer);
-            setLoadingAudio(false);
-        }
-        if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
-        const source = audioContextRef.current.createBufferSource();
-        source.buffer = buffer;
-        source.connect(gainNodeRef.current);
-        source.onended = onEnd;
-        audioSourceRef.current = source;
-        source.start();
-      } catch (error) {
-          setLoadingAudio(false);
-          playFreeHQAudio(text, 'vi-VN', onEnd);
+          const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+          const response = await fetch(`${apiBase}/tts?text=${encodeURIComponent(text)}&lang=${langParam}`);
+          if (response.ok) {
+              const blob = await response.blob();
+              const url = URL.createObjectURL(blob);
+              ttsCache.current.set(key, url);
+          }
+      } catch (err) {
+          // Silent fail for prefetch
       }
   };
 
-  const playFreeHQAudio = (text: string, langHint: string, onEnd: () => void) => {
-        const langCode = langHint.split('-')[0]; 
-        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${langCode}&client=tw-ob`;
-        const audio = new Audio(url);
-        onlineAudioRef.current = audio;
-        audio.playbackRate = 1.15; 
-        audio.onended = onEnd;
-        audio.onerror = () => playWebSpeechAudio(text, langHint, onEnd);
-        audio.play().catch(() => playWebSpeechAudio(text, langHint, onEnd));
-  };
-
-  const playWebSpeechAudio = (text: string, langHint: string, onEnd: () => void) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = langHint;
-    utterance.rate = 1;
-    utterance.onend = onEnd;
-    utterance.onerror = onEnd;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const playPiperAudio = async (text: string, onEnd: () => void) => {
+  const playSmartAudio = async (text: string, langHint: string, onEnd: () => void) => {
     try {
-      setLoadingAudio(true);
-      // Piper TTS - runs completely offline in browser
-      const cacheKey = `piper-${text}`;
-      
-      let audioBuffer: ArrayBuffer;
-      if (audioCache.current.has(cacheKey)) {
-        audioBuffer = audioCache.current.get(cacheKey) as any;
-      } else {
-        // Call Piper TTS API with Vietnamese voice
-        const response = await fetch('https://api.pipervoice.com/synthesize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: text,
-            voice: 'vi_VN-25hours-medium', // Vietnamese voice (Piper)
-            noiseScale: 0.667,
-            noiseW: 0.8,
-            lengthScale: 1
-          })
-        });
-
-        if (!response.ok) throw new Error('Piper TTS failed');
+        setLoadingAudio(true);
+        const langParam = langHint === 'vi-VN' ? 'vi-VN' : 'en-US';
+        const key = getCacheKey(text, langParam);
         
-        audioBuffer = await response.arrayBuffer();
-        audioCache.current.set(cacheKey, audioBuffer as any);
-      }
+        let url: string;
 
-      setLoadingAudio(false);
-      
-      if (!audioContextRef.current) return;
-      if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
-      
-      const audioBuffer2 = await audioContextRef.current.decodeAudioData(audioBuffer);
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = audioBuffer2;
-      source.connect(gainNodeRef.current!);
-      source.onended = onEnd;
-      audioSourceRef.current = source;
-      source.start();
+        if (ttsCache.current.has(key)) {
+            url = ttsCache.current.get(key)!;
+        } else {
+            const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+            const response = await fetch(`${apiBase}/tts?text=${encodeURIComponent(text)}&lang=${langParam}`);
+            if (!response.ok) throw new Error('TTS Server Error');
+            const blob = await response.blob();
+            url = URL.createObjectURL(blob);
+            ttsCache.current.set(key, url);
+        }
+        
+        const audio = new Audio(url);
+        
+        onlineAudioRef.current = audio;
+        audio.onended = () => {
+            onEnd();
+        };
+        audio.onerror = (e) => {
+            console.error("Audio playback error", e);
+            onEnd();
+        };
+        
+        await audio.play();
+        setLoadingAudio(false);
     } catch (error) {
-      console.warn('Piper TTS failed, fallback to Gemini:', error);
-      setLoadingAudio(false);
-      playGeminiAudio(text, onEnd);
+        console.error("Edge TTS Failed - Ensure server.js is running (node server.js)", error);
+        setLoadingAudio(false);
+        onEnd(); 
     }
-  };
-
-  const playNeuralAudio = (text: string, onEnd: () => void) => {
-    // Web Speech API - Native voice synthesis (Windows Neural voices)
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'vi-VN';
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-    
-    // Find best Vietnamese voice (Microsoft HoaiMy/NamMinh if available)
-    const allVoices = window.speechSynthesis.getVoices();
-    const viVoices = allVoices.filter(v => v.lang.includes('vi'));
-    const bestVoice = viVoices.find(v => v.name.includes('HoaiMy') || v.name.includes('NamMinh')) || viVoices[0];
-    if (bestVoice) utterance.voice = bestVoice;
-    
-    utterance.onend = onEnd;
-    utterance.onerror = onEnd;
-    window.speechSynthesis.speak(utterance);
   };
 
   const speakText = (text: string, isManual: boolean, langHint: string = 'vi-VN') => {
@@ -261,13 +191,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
     setDucking(true);
     const onEnd = () => { setSpeakingText(null); setDucking(false); };
 
-    if (langHint !== 'vi-VN') { playFreeHQAudio(text, langHint, onEnd); return; }
-
-    switch (voiceMode) {
-      case 'PIPER': playPiperAudio(text, onEnd); break;
-      case 'GEMINI': playGeminiAudio(text, onEnd); break;
-      case 'FREE_HQ': default: playFreeHQAudio(text, langHint, onEnd); break;
-    }
+    playSmartAudio(text, langHint, onEnd);
   };
 
   useImperativeHandle(ref, () => ({
@@ -305,6 +229,14 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
       if (activeSub && isAutoDub && activeSub.id !== lastPlayedSubId.current) {
          lastPlayedSubId.current = activeSub.id;
          speakText(activeSub.textVietnamese, false, 'vi-VN');
+         
+         // PREFETCH Next 2 Subtitles
+         if (activeSubIndex !== -1) {
+             for (let i = 1; i <= 2; i++) {
+                 const nextSub = subtitles[activeSubIndex + i];
+                 if (nextSub) prefetchAudio(nextSub.textVietnamese, 'vi-VN');
+             }
+         }
       }
       setCurrentSub(activeSub || null);
     }
@@ -360,51 +292,52 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
             {settingsMenu === 'MAIN' && (
                 <div className="py-2">
                     <button 
-                        onClick={() => setSettingsMenu('VOICE_MODE')}
-                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/10 transition-colors text-sm text-white"
+                        onClick={() => setSettingsMenu('SUB_LANG')}
+                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/10 transition-colors text-sm text-white border-b border-white/5"
                     >
-                        <div className="flex items-center gap-3">
-                            <Settings className="w-4 h-4 text-gray-400" />
-                            <span>Voice Engine</span>
+                         <div className="flex items-center gap-3">
+                            <Languages className="w-4 h-4 text-gray-400" />
+                            <span>Subtitle Language</span>
                         </div>
                         <div className="flex items-center gap-1 text-gray-400">
-                            <span className="text-xs">{voiceMode === 'PIPER' ? 'Piper (Local)' : voiceMode === 'GEMINI' ? 'Gemini AI' : 'Google HQ'}</span>
+                            <span className="text-xs">{subLanguageMode === 'BOTH' ? 'Bilingual' : subLanguageMode === 'VI' ? 'Vietnamese' : 'English'}</span>
                             <ChevronRight className="w-4 h-4" />
                         </div>
                     </button>
-                    {voiceMode === 'GEMINI' && (
-                        <button 
-                            onClick={() => setSettingsMenu('VOICE_SELECT')}
-                            className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/10 transition-colors text-sm text-white"
-                        >
-                             <div className="flex items-center gap-3">
-                                <Headphones className="w-4 h-4 text-gray-400" />
-                                <span>Select Voice</span>
-                            </div>
-                            <ChevronRight className="w-4 h-4 text-gray-400" />
-                        </button>
-                    )}
+                    <button 
+                        onClick={() => setSettingsMenu('SUB_SIZE')}
+                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/10 transition-colors text-sm text-white"
+                    >
+                         <div className="flex items-center gap-3">
+                            <Type className="w-4 h-4 text-gray-400" />
+                            <span>Subtitle Size</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-gray-400">
+                            <span className="text-xs">{subFontSize === 'SMALL' ? 'Small' : subFontSize === 'MEDIUM' ? 'Normal' : 'Large'}</span>
+                            <ChevronRight className="w-4 h-4" />
+                        </div>
+                    </button>
                 </div>
             )}
 
-            {settingsMenu === 'VOICE_MODE' && (
+            {settingsMenu === 'SUB_LANG' && (
                 <div className="py-2">
                     <div className="px-4 py-2 flex items-center gap-2 border-b border-white/10 mb-1 cursor-pointer" onClick={() => setSettingsMenu('MAIN')}>
                         <ChevronLeft className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm font-bold text-white">Voice Engine</span>
+                        <span className="text-sm font-bold text-white">Subtitle Language</span>
                     </div>
                     {[
-                        { id: 'PIPER', label: 'Piper TTS (Local)', desc: 'Chạy offline - Không cần internet' },
-                        { id: 'FREE_HQ', label: 'Google Translate', desc: 'Nhanh & ổn định' },
-                        { id: 'GEMINI', label: 'Gemini AI (Premium)', desc: 'Cần API key' }
+                        { id: 'BOTH', label: 'Bilingual (Both)', desc: 'Hiển thị song ngữ' },
+                        { id: 'VI', label: 'Vietnamese Only', desc: 'Chỉ tiếng Việt' },
+                        { id: 'EN', label: 'English Only', desc: 'Chỉ tiếng Anh' }
                     ].map((mode) => (
                         <button 
                             key={mode.id}
-                            onClick={() => { stopAllAudio(); setVoiceMode(mode.id as any); setSettingsMenu('MAIN'); }}
-                            className="w-full px-4 py-2.5 flex items-start gap-3 hover:bg-white/10 transition-colors text-left"
+                            onClick={() => { setSubLanguageMode(mode.id as any); setSettingsMenu('MAIN'); }}
+                            className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-white/10 transition-colors text-left"
                         >
-                            {voiceMode === mode.id && <Check className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />}
-                            <div className={`${voiceMode !== mode.id ? 'pl-7' : ''}`}>
+                            {subLanguageMode === mode.id && <Check className="w-4 h-4 text-indigo-400 shrink-0" />}
+                            <div className={`${subLanguageMode !== mode.id ? 'pl-7' : ''}`}>
                                 <div className="text-sm text-white font-medium">{mode.label}</div>
                                 <div className="text-xs text-gray-500">{mode.desc}</div>
                             </div>
@@ -413,24 +346,29 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
                 </div>
             )}
 
-            {settingsMenu === 'VOICE_SELECT' && (
-                <div className="py-2 max-h-60 overflow-y-auto custom-scrollbar">
-                     <div className="px-4 py-2 flex items-center gap-2 border-b border-white/10 mb-1 cursor-pointer sticky top-0 bg-[#0f0f0f] z-10" onClick={() => setSettingsMenu('MAIN')}>
+            {settingsMenu === 'SUB_SIZE' && (
+                <div className="py-2">
+                    <div className="px-4 py-2 flex items-center gap-2 border-b border-white/10 mb-1 cursor-pointer" onClick={() => setSettingsMenu('MAIN')}>
                         <ChevronLeft className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm font-bold text-white">Select Voice</span>
+                        <span className="text-sm font-bold text-white">Subtitle Size</span>
                     </div>
-                    {voiceMode === 'GEMINI' ? (
-                        GEMINI_VOICES.map(v => (
-                            <button 
-                                key={v.id}
-                                onClick={() => { setSelectedGeminiVoice(v.id); setSettingsMenu('MAIN'); }}
-                                className="w-full px-4 py-2 flex items-center gap-3 hover:bg-white/10 transition-colors text-left text-sm text-white"
-                            >
-                                {selectedGeminiVoice === v.id && <Check className="w-4 h-4 text-indigo-400" />}
-                                <span className={selectedGeminiVoice !== v.id ? 'pl-7' : ''}>{v.name}</span>
-                            </button>
-                        ))
-                    ) : null}
+                    {[
+                        { id: 'SMALL', label: 'Small', desc: 'Nhỏ gọn' },
+                        { id: 'MEDIUM', label: 'Normal', desc: 'Mặc định' },
+                        { id: 'LARGE', label: 'Large', desc: 'To rõ ràng' }
+                    ].map((mode) => (
+                        <button 
+                            key={mode.id}
+                            onClick={() => { setSubFontSize(mode.id as any); setSettingsMenu('MAIN'); }}
+                            className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-white/10 transition-colors text-left"
+                        >
+                            {subFontSize === mode.id && <Check className="w-4 h-4 text-indigo-400 shrink-0" />}
+                            <div className={`${subFontSize !== mode.id ? 'pl-7' : ''}`}>
+                                <div className="text-sm text-white font-medium">{mode.label}</div>
+                                <div className="text-xs text-gray-500">{mode.desc}</div>
+                            </div>
+                        </button>
+                    ))}
                 </div>
             )}
         </div>
@@ -458,22 +396,33 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
 
       {/* Subtitles Overlay */}
       {showSubs && currentSub && (
-        <div className={`absolute bottom-20 left-0 right-0 flex flex-col items-center justify-end px-4 pb-2 z-20 pointer-events-none transition-all duration-300 ${showControls ? '-translate-y-4' : 'translate-y-0'}`}>
-             <div className="flex flex-col items-center gap-1.5 transition-all">
-                <button
-                    onClick={(e) => { e.stopPropagation(); speakText(currentSub.textOriginal, true, 'en-US'); }}
-                    className="pointer-events-auto bg-black/60 hover:bg-black/80 backdrop-blur-[2px] px-2 py-0.5 rounded text-white/90 text-xs md:text-sm font-medium transition-colors text-center max-w-[90%] md:max-w-[70%]"
-                >
-                    {currentSub.textOriginal}
-                </button>
-                <button
-                    onClick={(e) => { e.stopPropagation(); speakText(currentSub.textVietnamese, true, 'vi-VN'); }}
-                    className="pointer-events-auto bg-black/75 hover:bg-black/90 backdrop-blur-[2px] px-3 py-1 rounded-md text-yellow-300 text-sm md:text-lg font-semibold shadow-sm transition-colors text-center max-w-[95%] md:max-w-[80%] leading-relaxed"
-                >
-                    {loadingAudio && speakingText === currentSub.textVietnamese ? (
-                        <span className="flex items-center gap-2 justify-center"><Loader2 className="w-4 h-4 animate-spin" />{currentSub.textVietnamese}</span>
-                    ) : currentSub.textVietnamese}
-                </button>
+        <div className={`absolute left-0 right-0 flex flex-col items-center justify-end px-4 z-20 pointer-events-none transition-all duration-300 ${isFullscreen ? 'bottom-24' : 'bottom-14'} ${showControls ? '-translate-y-2' : 'translate-y-0'}`}>
+             <div className="flex flex-col items-center gap-1.5 transition-all w-full">
+                {(subLanguageMode === 'BOTH' || subLanguageMode === 'EN') && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); speakText(currentSub.textOriginal, true, 'en-US'); }}
+                        className={`pointer-events-auto bg-black/60 hover:bg-black/80 backdrop-blur-[2px] px-2 py-0.5 rounded text-white/90 font-medium transition-colors text-center max-w-[90%]
+                             ${subFontSize === 'SMALL' ? 'text-[8px]' : subFontSize === 'LARGE' ? 'text-xs' : 'text-[10px]'}
+                             ${isFullscreen ? (subFontSize === 'SMALL' ? 'md:text-sm' : subFontSize === 'LARGE' ? 'md:text-xl' : 'md:text-base') : ''}
+                        `}
+                    >
+                        {currentSub.textOriginal}
+                    </button>
+                )}
+                
+                {(subLanguageMode === 'BOTH' || subLanguageMode === 'VI') && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); speakText(currentSub.textVietnamese, true, 'vi-VN'); }}
+                        className={`pointer-events-auto bg-black/75 hover:bg-black/90 backdrop-blur-[2px] px-3 py-1 rounded-md text-yellow-300 font-semibold shadow-sm transition-colors text-center max-w-[95%] leading-relaxed 
+                             ${subFontSize === 'SMALL' ? 'text-[10px]' : subFontSize === 'LARGE' ? 'text-sm' : 'text-xs'}
+                             ${isFullscreen ? (subFontSize === 'SMALL' ? 'md:text-lg' : subFontSize === 'LARGE' ? 'md:text-2xl' : 'md:text-xl') : ''}
+                        `}
+                    >
+                        {loadingAudio && speakingText === currentSub.textVietnamese ? (
+                            <span className="flex items-center gap-2 justify-center"><Loader2 className="w-3 h-3 md:w-4 md:h-4 animate-spin" />{currentSub.textVietnamese}</span>
+                        ) : currentSub.textVietnamese}
+                    </button>
+                )}
              </div>
         </div>
       )}

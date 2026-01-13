@@ -103,7 +103,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onStart, onCancel, isLoading, s
         {/* API Key Config Button */}
         <button 
             onClick={() => setShowKeyModal(true)}
-            className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors z-20 flex items-center gap-2"
+            className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors z-50 flex items-center gap-2"
             title="Configure API Key"
         >
             <span className={`w-2 h-2 rounded-full ${apiKey ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></span>
