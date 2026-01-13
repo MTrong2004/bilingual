@@ -6,7 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
 const app = express();
-const port = 3001; // Run on 3001 to avoid conflict with Vite (5173)
+const port = process.env.PORT || 3001; // Support Render PORT or default to 3001
 
 app.use(cors());
 app.use(express.json());
