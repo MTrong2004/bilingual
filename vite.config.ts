@@ -6,11 +6,20 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, (process as any).cwd(), '');
   return {
     plugins: [react()],
-    // Use './' for production builds (GitHub Pages), '/' for development
-    base: mode === 'production' ? './' : '/',
+    // Use '/bilingual/' for GitHub Pages
+    base: mode === 'production' ? '/bilingual/' : '/',
     define: {
       // Polyfill process.env for the app to work with 'process.env.API_KEY'
       'process.env': env
     },
+    build: {
+      outDir: 'dist',
+      assetsDir: 'assets',
+      rollupOptions: {
+        output: {
+          manualChunks: undefined
+        }
+      }
+    }
   };
 });
