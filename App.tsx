@@ -7,12 +7,16 @@ import { processMediaWithGemini } from './services/geminiService';
 import { saveToCache } from './services/cacheService';
 import { Sparkles } from 'lucide-react';
 
+import CourseLibrary from './components/CourseLibrary';
+import { Lesson } from './data/courseData';
+
 const App: React.FC = () => {
   // New State: Show Landing Page initially
   const [showLanding, setShowLanding] = useState(true);
+  const [showLibrary, setShowLibrary] = useState(false); // NEW: Library Mode
 
   const [appState, setAppState] = useState<AppState>(AppState.UPLOAD);
-  const [currentFile, setCurrentFile] = useState<File | null>(null);
+  const [currentFile, setCurrentFile] = useState<File | string | null>(null);
   const [processedData, setProcessedData] = useState<ProcessedData | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -21,7 +25,7 @@ const App: React.FC = () => {
   // Ref to hold the abort controller
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const handleStartProcessing = async (file: File, options: ProcessingOptions, cachedData?: ProcessedData) => {
+  const handleStartProcessing = async (file: File | string, options: ProcessingOptions, cachedData?: ProcessedData) => {
     setCurrentFile(file);
     setAppState(AppState.PROCESSING);
     setErrorMsg(null);
@@ -36,6 +40,28 @@ const App: React.FC = () => {
             setProcessedData(cachedData);
             setAppState(AppState.DASHBOARD);
         }, 800); // Small fake delay for UX smoothness
+        return;
+    }
+    
+    // Check if it's a URL (Course Mode) - Bypass Upload
+    if (typeof file === 'string') {
+        // TODO: In real app, fetch subtitle JSON from URL if available.
+        // For now, we simulate "No subtitles yet" or dummy data for the URL video.
+        // Actually, we can use Gemini to generate subs for the URL if we can fetch it?
+        // No, current logic requires File object for upload.
+        // LIMITATION: URL mode currently supports only playing, OR we need to fetch Blob.
+        
+        // TEMPORARY FIX: If URL, we assume it's just raw playing or we skip AI for now
+        // But the user expects AI features.
+        // Let's create a "Mock" processed data for now so they can at least watch.
+        
+        const mockData: ProcessedData = {
+            subtitles: [],
+            notes: [],
+            flashcards: []
+        };
+        setProcessedData(mockData);
+        setAppState(AppState.DASHBOARD);
         return;
     }
 
@@ -94,15 +120,40 @@ const App: React.FC = () => {
 
   const goHome = () => {
       resetApp();
+      setShowLibrary(false);
       setShowLanding(true);
+  };
+  
+  const handleSelectLesson = (lesson: Lesson) => {
+      // For now, load the lesson directly into Dashboard
+      // Note: Video URL will be lesson.videoUrl
+      setShowLibrary(false);
+      
+      const options: ProcessingOptions = {
+          generateNotes: true,
+          generateFlashcards: true,
+          originalLanguage: 'Auto Detect'
+      };
+      
+      handleStartProcessing(lesson.videoUrl || "https://media.w3.org/2010/05/sintel/trailer_hd.mp4", options);
   };
 
   // 1. Landing Page View
   if (showLanding) {
-      return <LandingPage onGetStarted={() => setShowLanding(false)} />;
+      return (
+        <LandingPage 
+            onGetStarted={() => setShowLanding(false)} 
+            // We can add a "Library" button to LandingPage later
+        />
+      );
+  }
+  
+  // 2. Library View
+  if (showLibrary) {
+      return <CourseLibrary onSelectLesson={handleSelectLesson} onBack={goHome} />;
   }
 
-  // 2. Dashboard View (When file is processed)
+  // 3. Dashboard View (When file is processed)
   if (appState === AppState.DASHBOARD && currentFile && processedData) {
       return <Dashboard file={currentFile} data={processedData} onBack={resetApp} />;
   }
@@ -118,10 +169,15 @@ const App: React.FC = () => {
                  </div>
                  <span className="font-bold text-lg text-white tracking-tight">BilingualFlow</span>
             </div>
-            {appState === AppState.UPLOAD && (
-                <button onClick={goHome} className="text-sm font-medium text-gray-400 hover:text-white transition-colors">
-                    Back to Home
-                </button>
+            {appState === AppState.UPLOAD && !showLibrary && (
+                <div className="flex gap-4">
+                    <button onClick={() => setShowLibrary(true)} className="text-sm font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
+                        Course Library
+                    </button>
+                    <button onClick={goHome} className="text-sm font-medium text-gray-400 hover:text-white transition-colors">
+                        Back to Home
+                    </button>
+                </div>
             )}
         </header>
 
