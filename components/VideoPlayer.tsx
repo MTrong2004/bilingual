@@ -134,6 +134,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
 
       try {
           const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+          const langParam = lang === 'vi-VN' ? 'vi-VN' : 'en-US';
           const response = await fetch(`${apiBase}/tts?text=${encodeURIComponent(text)}&lang=${langParam}`);
           if (response.ok) {
               const blob = await response.blob();
