@@ -255,6 +255,19 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
     setShowExportMenu(false);
   };
 
+  const exportJSON = () => {
+    const jsonString = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileBaseName}_data.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setShowExportMenu(false);
+  };
+
   const generateFFmpegCommand = () => {
       const videoName = fileName;
       const audioName = `${fileBaseName}_dubbed_audio.wav`;
@@ -440,6 +453,16 @@ const Dashboard: React.FC<DashboardProps> = ({ file, data, onBack }) => {
                             <button onClick={handleDownloadSource} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
                                 <FileVideo className="w-4 h-4" />
                                 Source Video Only
+                            </button>
+
+                            <div className="border-t border-gray-100 my-1"></div>
+
+                            <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50/50">
+                                Developer
+                            </div>
+                            <button onClick={exportJSON} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
+                                <FileText className="w-4 h-4" />
+                                Export Course Data (.json)
                             </button>
                         </div>
                     </>

@@ -125,10 +125,17 @@ const App: React.FC = () => {
   };
   
   const handleSelectLesson = (lesson: Lesson) => {
-      // For now, load the lesson directly into Dashboard
-      // Note: Video URL will be lesson.videoUrl
       setShowLibrary(false);
+
+      // 1. If lesson has pre-calculated data, load immediately
+      if (lesson.data) {
+          setCurrentFile(lesson.videoUrl || "https://media.w3.org/2010/05/sintel/trailer_hd.mp4");
+          setProcessedData(lesson.data);
+          setAppState(AppState.DASHBOARD);
+          return;
+      }
       
+      // 2. Otherwise try to process (Usually won't work perfectly for online URLs without download)
       const options: ProcessingOptions = {
           generateNotes: true,
           generateFlashcards: true,

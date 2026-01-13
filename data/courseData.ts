@@ -1,3 +1,5 @@
+import { ProcessedData } from '../types';
+
 export interface Lesson {
   id: string;
   title: string;
@@ -5,6 +7,7 @@ export interface Lesson {
   thumbnail?: string;
   duration?: string;
   description?: string;
+  data?: ProcessedData; // Pre-calculated AI data
 }
 
 export interface Module {
