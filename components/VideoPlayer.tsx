@@ -376,6 +376,35 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
     );
   };
 
+  // Detect if Source Is Embed URL
+  const isEmbed = src.includes('embed.aspx') || src.includes('youtube.com/embed') || src.includes('player.vimeo.com');
+
+  if (isEmbed) {
+      return (
+        <div 
+            ref={containerRef}
+            className={`relative group bg-black rounded-3xl overflow-hidden shadow-2xl transition-all duration-500 ease-in-out border border-white/5 ${isFullscreen ? 'w-full h-full rounded-none' : 'w-full aspect-video'}`}
+        >
+             <iframe 
+                src={src} 
+                className="w-full h-full" 
+                frameBorder="0" 
+                scrolling="no" 
+                allowFullScreen 
+                title="Course Video"
+             />
+             {/* Overlay Message for Embed Mode */}
+             <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full text-xs text-gray-400 border border-white/10 z-10 pointer-events-none">
+                 Embed Mode (AI Features Limited)
+             </div>
+             {/* Simple Back Button if Fullscreen needed or custom controls absent */}
+             <button onClick={toggleFullscreen} className="absolute bottom-4 right-4 bg-black/50 p-2 rounded-lg text-white hover:bg-black/80 z-20">
+                 {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+             </button>
+        </div>
+      );
+  }
+
   return (
     <div 
         ref={containerRef} 

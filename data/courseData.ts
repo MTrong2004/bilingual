@@ -20,8 +20,8 @@ export const COURSE_CONTENT: Module[] = [
     lessons: [
       {
         id: "l1",
-        title: "Bài 1: Giới thiệu giao diện",
-        videoUrl: "", // Sẽ điền link OneDrive của bạn vào đây
+        title: "Bài 1: Блокаут (Blockout)",
+        videoUrl: "https://4c28g5-my.sharepoint.com/personal/mtrong_bm2004_onmicrosoft_com/_layouts/15/embed.aspx?UniqueId=9aab419a-2970-4fe3-b808-45890aeefcfc&embed=%7B%22ust%22%3Afalse%2C%22hv%22%3A%22CopyEmbedCode%22%7D&referrer=StreamWebApp&referrerScenario=EmbedDialog.Create",
         duration: "15:00",
         description: "Làm quen với không gian làm việc và các công cụ cơ bản."
       },
