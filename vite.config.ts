@@ -6,8 +6,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, (process as any).cwd(), '');
   return {
     plugins: [react()],
-    // Use '/bilingual/' for GitHub Pages
-    base: mode === 'production' ? '/bilingual/' : '/',
+    // Base must be '/' for Vercel
+    base: '/',
     define: {
       // Polyfill process.env for the app to work with 'process.env.API_KEY'
       'process.env': env
