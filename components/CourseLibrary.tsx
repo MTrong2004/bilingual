@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Module, Lesson, COURSE_CONTENT } from '../data/courseData';
-import { PlayCircle, Lock, MonitorPlay, ChevronRight, ChevronDown, CheckCircle2, Sparkles } from 'lucide-react';
+import { PlayCircle, Lock, MonitorPlay, ChevronRight, ChevronDown, CheckCircle2, Sparkles, Settings, ArrowLeft } from 'lucide-react';
 
 interface CourseLibraryProps {
   onSelectLesson: (lesson: Lesson) => void;
   onBack: () => void;
+  onOpenSettings?: () => void;
 }
 
-const CourseLibrary: React.FC<CourseLibraryProps> = ({ onSelectLesson, onBack }) => {
+const CourseLibrary: React.FC<CourseLibraryProps> = ({ onSelectLesson, onBack, onOpenSettings }) => {
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({ "m1": true });
   const [cachedFiles, setCachedFiles] = useState<Set<string>>(new Set());
 
@@ -43,13 +44,21 @@ const CourseLibrary: React.FC<CourseLibraryProps> = ({ onSelectLesson, onBack })
       <div className="max-w-5xl mx-auto">
         <header className="mb-12 flex items-center justify-between">
             <div>
+                 <button onClick={onBack} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4 transition-colors">
+                    <ArrowLeft className="w-4 h-4" /> Back to Home
+                 </button>
                  <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent mb-2">
                     Thư Viện Khóa Học
                  </h1>
                  <p className="text-gray-400">ZBrush Masterclass - Bilingual Edition</p>
             </div>
-            <button onClick={onBack} className="text-gray-400 hover:text-white px-4 py-2 border border-white/10 rounded-lg">
-                Quay lại
+            
+            <button 
+                onClick={onOpenSettings}
+                className="p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-colors group"
+                title="Settings"
+            >
+                <Settings className="w-5 h-5 text-gray-400 group-hover:text-white" />
             </button>
         </header>
 

@@ -1,154 +1,38 @@
 import React, { useState } from 'react';
 import { Course, COURSES } from '../data/courseData';
-import { PlayCircle, Upload, BookOpen, Clock, Zap, Settings, Download, X, ArrowLeft, RotateCcw } from 'lucide-react';
+import { PlayCircle, Upload, BookOpen, Clock, Zap, Settings, Download, X, ArrowLeft, RotateCcw, Eye, EyeOff } from 'lucide-react';
 import { getAllCacheEntries, importCacheEntries } from '../services/cacheService';
+import SettingsModal from './SettingsModal';
 
 interface MainMenuProps {
   onSelectCourse: (course: Course) => void;
   onOpenUpload: () => void;
   onBack: () => void;
+  onOpenSettings: () => void;
+  user?: any; // Google user profile
 }
 
-const MainMenu: React.FC<MainMenuProps> = ({ onSelectCourse, onOpenUpload, onBack }) => {
-  const [showSettings, setShowSettings] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const handleExportData = async () => {
-      setIsExporting(true);
-      try {
-          const allData = await getAllCacheEntries();
-          const dataStr = JSON.stringify(allData, null, 2);
-          const blob = new Blob([dataStr], { type: "application/json" });
-          const url = URL.createObjectURL(blob);
-          
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `bilingual-flow-export-${new Date().toISOString().slice(0,10)}.json`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-      } catch (e) {
-          console.error("Export failed", e);
-          alert("Failed to export data");
-      } finally {
-          setIsExporting(false);
-      }
-  };
-  
-  const handleImportClick = () => {
-      fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      if (!confirm("This will merge imported data with your current data. Existing files with same ID will be overwritten. Continue?")) {
-          e.target.value = "";
-          return;
-      }
-      
-      setIsImporting(true);
-      try {
-          const text = await file.text();
-          const data = JSON.parse(text);
-          
-          if (!Array.isArray(data)) throw new Error("Invalid JSON format (Expected an array)");
-          
-          await importCacheEntries(data);
-          alert(`Successfully imported/updated ${data.length} records!`);
-          window.location.reload(); 
-      } catch (err: any) {
-          console.error("Import failed", err);
-          alert("Import failed: " + err.message);
-      } finally {
-          setIsImporting(false);
-          if (fileInputRef.current) fileInputRef.current.value = "";
-      }
-  };
-
+const MainMenu: React.FC<MainMenuProps> = ({ onSelectCourse, onOpenUpload, onBack, onOpenSettings, user }) => {
   return (
     <div className="min-h-screen bg-[#050505] text-white p-8 font-sans selection:bg-indigo-500/30 relative">
-        
-        <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            accept=".json" 
-            onChange={handleFileChange} 
-        />
-
-        {/* Settings Modal */}
-        {showSettings && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setShowSettings(false)}>
-                <div className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-md w-full shadow-2xl relative" onClick={e => e.stopPropagation()}>
-                    <button 
-                        onClick={() => setShowSettings(false)}
-                        className="absolute top-4 right-4 text-gray-500 hover:text-white"
-                    >
-                        <X size={20} />
-                    </button>
-                    
-                    <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                        <Settings className="w-5 h-5 text-indigo-400" />
-                        Settings
-                    </h2>
-
-                    <div className="space-y-4">
-                        <div className="p-4 bg-white/5 rounded-xl border border-white/5">
-                            <h3 className="font-bold text-gray-200 mb-2">Data Management</h3>
-                            <p className="text-xs text-gray-400 mb-4">
-                                Download all your locally translated content as a JSON file. 
-                            </p>
-                            <button 
-                                onClick={handleExportData}
-                                disabled={isExporting}
-                                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2 mb-3"
-                            >
-                                {isExporting ? (
-                                    <span>Exporting...</span>
-                                ) : (
-                                    <>
-                                        <Download size={16} />
-                                        Export All Data (.json)
-                                    </>
-                                )}
-                            </button>
-
-                            <button 
-                                onClick={handleImportClick}
-                                disabled={isImporting}
-                                className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                            >
-                                {isImporting ? (
-                                    <span>Importing...</span>
-                                ) : (
-                                    <>
-                                        <RotateCcw size={16} />
-                                        Import Data (.json)
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        )}
 
         {/* Header */}
         <header className="max-w-6xl mx-auto flex justify-between items-center mb-16 pt-8">
             <div className="flex items-center gap-3">
-                 <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                    <div className="w-3 h-3 bg-white rounded-full"></div>
+                 <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 overflow-hidden">
+                    {user?.picture ? (
+                        <img src={user.picture} alt={user.name} className="w-full h-full object-cover" />
+                    ) : (
+                        <div className="w-3 h-3 bg-white rounded-full"></div>
+                    )}
                  </div>
-                 <span className="font-bold text-2xl tracking-tight">BilingualFlow</span>
+                 <span className="font-bold text-lg md:text-2xl tracking-tight">
+                    {user?.name ? user.name : "BilingualFlow"}
+                </span>
             </div>
             <div className="flex items-center gap-4">
                  <button 
-                    onClick={() => setShowSettings(true)}
+                    onClick={onOpenSettings}
                     className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm font-medium px-3 py-2 hover:bg-white/5 rounded-lg"
                  >
                      <Settings size={16} />

@@ -77,7 +77,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ src, subtitl
 
   // Settings & Dubbing State
   // Removed voiceMode state as requested - unifying into single smart engine
-  const [subLanguageMode, setSubLanguageMode] = useState<'BOTH' | 'VI' | 'EN'>('BOTH');
+  const [subLanguageMode, setSubLanguageMode] = useState<'BOTH' | 'VI' | 'EN'>('VI');
   const [subFontSize, setSubFontSize] = useState<'SMALL' | 'MEDIUM' | 'LARGE'>('MEDIUM');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsMenu, setSettingsMenu] = useState<'MAIN' | 'SUB_LANG' | 'SUB_SIZE'>('MAIN');

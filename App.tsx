@@ -4,19 +4,50 @@ import Dashboard from './components/Dashboard';
 import LandingPage from './components/LandingPage';
 import ProcessingQueue from './components/ProcessingQueue';
 import { AppState, ProcessedData, ProcessingOptions, BackgroundJob } from './types';
-import { processMediaWithGemini } from './services/geminiService';
+import { processMediaWithGemini, getApiKey } from './services/geminiService';
 import { saveToCache, getFromCache as checkCache, getFromCacheByFilename } from './services/cacheService';
 import { Sparkles } from 'lucide-react';
 
 import CourseLibrary from './components/CourseLibrary';
 import MainMenu from './components/MainMenu';
+import SettingsModal from './components/SettingsModal';
 import { Lesson, Course } from './data/courseData';
+import { Settings } from 'lucide-react';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+import { jwtDecode } from "jwt-decode";
+
+const GOOGLE_CLIENT_ID = "36938325838-v90hii9uvnt433n3tba7p85ae6s2mc0d.apps.googleusercontent.com"; // User must replace this!
 
 const App: React.FC = () => {
   // New State: Show Landing Page initially - Check localStorage
   const [showLanding, setShowLanding] = useState(() => !localStorage.getItem('started_flow'));
+  const [userProfile, setUserProfile] = useState<any>(() => {
+      const saved = localStorage.getItem('user_profile');
+      return saved ? JSON.parse(saved) : null;
+  });
+
   const [showLibrary, setShowLibrary] = useState(false); 
+  const [showSettings, setShowSettings] = useState(false);
   const [customUploadMode, setCustomUploadMode] = useState(false); 
+
+  const handleLoginSuccess = (credentialResponse: any) => {
+      try {
+          const decoded = jwtDecode(credentialResponse.credential);
+          console.log("Login Success:", decoded);
+          setUserProfile(decoded);
+          localStorage.setItem('user_profile', JSON.stringify(decoded));
+          localStorage.setItem('started_flow', 'true');
+          setShowLanding(false);
+      } catch (e) {
+          console.error("Login verification failed", e);
+      }
+  };
+
+  const handleLogout = () => {
+      setUserProfile(null);
+      localStorage.removeItem('user_profile');
+      setShowLanding(true);
+  };
 
   const [appState, setAppState] = useState<AppState>(AppState.UPLOAD);
   const [currentFile, setCurrentFile] = useState<File | string | null>(null);
@@ -73,6 +104,17 @@ const App: React.FC = () => {
   }, [jobs]);
 
   const processJob = async (job: BackgroundJob) => {
+      // 0. Check API Key Validation
+      if (!getApiKey()) {
+          const userKey = window.prompt("Thiếu Gemini API Key.\n\nLấy key tại: https://aistudio.google.com/app/apikey\n\nVui lòng nhập Key của bạn để tiếp tục (được lưu vào Local Storage):");
+          if (userKey && userKey.trim().length > 0) {
+              localStorage.setItem("gemini_api_key", userKey.trim());
+          } else {
+              updateJob(job.id, { status: 'error', error: 'Missing API Key. Please add in Settings.' });
+              return;
+          }
+      }
+
       updateJob(job.id, { status: 'processing', progress: 0 });
       let file = job.file;
 
@@ -261,15 +303,22 @@ const App: React.FC = () => {
       addJob(lesson.videoUrl || "", fileName);
   };
 
+  const handleOpenSettings = () => setShowSettings(true);
+
   // 1. Landing Page View
   if (showLanding) {
       return (
-        <LandingPage 
-            onGetStarted={() => {
-                localStorage.setItem('started_flow', 'true');
-                setShowLanding(false);
-            }} 
-        />
+        <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+            <LandingPage 
+                onGetStarted={() => {
+                    localStorage.setItem('started_flow', 'true');
+                    setShowLanding(false);
+                }}
+                onOpenSettings={handleOpenSettings} 
+                onLoginSuccess={handleLoginSuccess}
+            />
+            <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+        </GoogleOAuthProvider>
       );
   }
   
@@ -287,8 +336,13 @@ const App: React.FC = () => {
   if (showLibrary) {
       return (
         <>
-            <CourseLibrary onSelectLesson={handleSelectLesson} onBack={goHome} />
+            <CourseLibrary 
+                onSelectLesson={handleSelectLesson} 
+                onBack={goHome} 
+                onOpenSettings={handleOpenSettings}
+            />
             <QueueWidget />
+            <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
         </>
       );
   }
@@ -298,11 +352,14 @@ const App: React.FC = () => {
       return (
           <>
             <MainMenu 
+                user={userProfile}
                 onSelectCourse={handleSelectCourse}
                 onOpenUpload={() => setCustomUploadMode(true)}
-                onBack={goLanding}
+                onBack={handleLogout}
+                onOpenSettings={handleOpenSettings}
             />
             <QueueWidget />
+            <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
           </>
       );
   }
@@ -313,6 +370,15 @@ const App: React.FC = () => {
         <>
             <Dashboard file={currentFile} data={processedData} onBack={resetApp} title={currentLessonTitle} />
             <QueueWidget />
+            {/* Global Settings Trigger for Dashboard */}
+             <button 
+                onClick={handleOpenSettings}
+                className="fixed top-4 right-4 z-50 p-2 bg-black/50 text-gray-400 hover:text-white rounded-lg backdrop-blur-sm border border-white/10 transition-colors shadow-xl"
+                title="Settings"
+             >
+                 <Settings size={20} />
+             </button>
+            <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
         </>
       );
   }
@@ -329,9 +395,15 @@ const App: React.FC = () => {
                  <span className="font-bold text-lg text-white tracking-tight">BilingualFlow</span>
             </div>
             
-            <button onClick={goHome} className="text-sm font-medium text-gray-400 hover:text-white transition-colors">
-                Back to Dashboard
-            </button>
+            <div className="flex items-center gap-4">
+                <button onClick={handleOpenSettings} className="text-gray-400 hover:text-white transition-colors">
+                    <Settings size={20} />
+                </button>
+                <div className="w-px h-4 bg-white/10"></div>
+                <button onClick={goHome} className="text-sm font-medium text-gray-400 hover:text-white transition-colors">
+                    Back to Dashboard
+                </button>
+            </div>
         </header>
 
         <main className="container mx-auto px-4 min-h-screen pt-24 pb-12 flex flex-col justify-center items-center relative z-10">

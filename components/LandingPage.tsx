@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, BrainCircuit, FileText, Languages, ArrowRight, Play, Globe, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Sparkles, BrainCircuit, FileText, Languages, ArrowRight, Play, Globe, CheckCircle2, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
 import { COURSES } from '../data/courseData';
+import { GoogleLogin } from '@react-oauth/google';
 
 interface LandingPageProps {
   onGetStarted: () => void;
+  onOpenSettings?: () => void;
+  onLoginSuccess?: (credentialResponse: any) => void;
 }
 
 const HERO_IMAGES = [
@@ -11,7 +14,7 @@ const HERO_IMAGES = [
   // Add more images here if needed, e.g. "/thumbnails/hero-2.png"
 ];
 
-const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
+const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onOpenSettings, onLoginSuccess }) => {
   const featuredCourse = COURSES[0]; // Get the first course to display
   const [currentImageIdx, setCurrentImageIdx] = useState(0);
 
@@ -42,12 +45,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
             <div className="flex items-center gap-8">
                 {/* Desktop Menu */}
                 <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-300">
-                    <a href="#" className="hover:text-white transition-colors">Manifesto</a>
-                    <a href="#" className="hover:text-white transition-colors">Solutions</a>
-                    <a href="#" className="hover:text-white transition-colors">Pricing</a>
+                    <button onClick={onOpenSettings} className="hover:text-white transition-colors flex items-center gap-2">
+                        <Settings className="w-4 h-4" />
+                        Settings
+                    </button>
                 </div>
 
-                <button 
+                <button  
                     onClick={onGetStarted}
                     className="flex items-center gap-2 px-6 py-2.5 bg-white text-black rounded-full text-sm font-bold hover:bg-gray-200 transition-colors"
                 >
@@ -78,14 +82,33 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                     Don't just watch content—absorb it. Our AI transforms your favorite media into bilingual subtitles, timestamped notes, and instant flashcards.
                 </p>
 
-                <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                <div className="flex flex-col sm:flex-row gap-4 pt-4 items-center">
                     <button 
                         onClick={onGetStarted}
                         className="px-8 py-4 bg-white text-black rounded-full font-bold text-lg hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2 group shadow-[0_0_20px_rgba(255,255,255,0.2)]"
                     >
                         <Play className="w-5 h-5 fill-black group-hover:scale-110 transition-transform" /> Start Learning
                     </button>
+                    
+                    <div className="rounded-full overflow-hidden border border-white/20 bg-white/5 backdrop-blur-sm">
+                        <GoogleLogin
+                            onSuccess={credentialResponse => {
+                                console.log(credentialResponse);
+                                onLoginSuccess?.(credentialResponse);
+                            }}
+                            onError={() => {
+                                console.error('Login Failed');
+                                alert(`Đăng nhập thất bại (Lỗi 400). \n\nHãy vào Google Cloud Console > Credentials > Authorized JavaScript origins và thêm:\n${window.location.origin}\n\n(Không được có dấu gạch chéo / ở cuối)`);
+                            }}
+                            theme="outline"
+                            size="large"
+                            shape="circle"
+                            type="icon"
+                        />
+                    </div>
+
                     <button 
+                        onClick={onGetStarted}
                         className="px-8 py-4 border border-white/20 text-white rounded-full font-medium text-lg hover:bg-white/5 backdrop-blur-sm transition-colors flex items-center justify-center gap-2"
                     >
                         <Globe className="w-5 h-5" /> View Demo
